@@ -129,8 +129,8 @@ download_track() {
     grep -o '\[.\+\]' | jq '.[-1].data' >"$workdir/json"
 
   id=$(jq -r '.id' "$workdir/json")
-  title=$(jq -r 'if has(".publisher_metadata.release_title") then .publisher_metadata.release_title else .title end // empty' "$workdir/json")
-  artist=$(jq -r '.publisher_metadata.artist // empty' "$workdir/json")
+  title=$(jq -r 'if .publisher_metadata.release_title then .publisher_metadata.release_title else .title // empty end' "$workdir/json")
+  artist=$(jq -r 'if .publisher_metadata.artist then .publisher_metadata.artist else .user.username // empty end' "$workdir/json")
   album=$(jq -r '.publisher_metadata.album_title // empty' "$workdir/json")
   transcodings=$(jq '.media.transcodings' "$workdir/json")
 

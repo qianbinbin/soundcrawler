@@ -22,7 +22,7 @@ Download tracks from SoundCloud.
     -C                    do NOT write cover art to media files
     -I <file>             read URLs from file
     -o <dir>              set output directory
-    -t <transcoding>      select transcoding to download
+    -t <transcoding>      specify a transcoding to download
     -h                    display this help and exit
 
 Home page: <https://github.com/qianbinbin/soundcrawler>

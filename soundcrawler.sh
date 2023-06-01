@@ -103,7 +103,6 @@ fi
 
 TMP_DIR=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP_DIR"' EXIT
-cd "$TMP_DIR" || exit 1
 
 mime_to_ext() {
   if [ ! -f "$TMP_DIR/mime" ]; then

@@ -14,9 +14,10 @@ error() { printf "%s\n" "$@" >&2; }
 
 USAGE=$(
   cat <<-END
-usage: $0 [<options>] <url>...
+Usage: $0 [<options>] <url>...
+Download tracks from SoundCloud.
 
-    -i                    print media information instead of downloading media files (implies -C and -M)
+    -i                    print media information instead of downloading media files (implies -M and -C)
     -M                    do NOT write metadata to media files
     -C                    do NOT write cover art to media files
     -I <file>             read URLs from file
@@ -55,7 +56,7 @@ URL_LIST=$(
     if printf "%s\n" "$u" | grep -qs '^https://soundcloud.com/.\+$'; then
       printf "%s\n" "$u"
     else
-      error "Unknown URL: $u , skipping..."
+      error "Unknown URL: '$u', skipping..."
     fi
   done
 )
@@ -71,7 +72,7 @@ if [ "$INFO" = true ]; then
 fi
 
 if [ "$INFO" = false ] && { [ ! -d "$OUT_DIR" ] || [ ! -w "$OUT_DIR" ]; }; then
-  error "Cannot write to directory: $OUT_DIR"
+  error "Cannot write to directory: '$OUT_DIR'"
   exit 126
 fi
 
@@ -81,14 +82,17 @@ exists() {
 
 for c in curl jq; do
   if ! exists "$c"; then
-    error "$c not found."
+    error "'$c' not found."
     exit 127
   fi
 done
 
-if [ "$INFO" = false ] && [ -n "$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')" ] && ! exists ffmpeg; then
-  error "ffmpeg not found."
-  exit 127
+if [ "$INFO" = false ] && ! exists ffmpeg; then
+  if [ "$METADATA" = true ] || [ "$COVER" = true ] || [ "$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')" = hls ]; then
+    error "'ffmpeg' not found."
+    error "Specify '-M -C -t mp3' to download without ffmpeg."
+    exit 127
+  fi
 fi
 
 error "Fetching client_id..."
@@ -178,7 +182,7 @@ download_track() {
   filename="$filename.$codec"
   protocol=$(printf "%s\n" "$transcoding" | jq -r '.format.protocol')
 
-  error "Downloading $filename ..."
+  error "Downloading '$filename'..."
   if [ "$protocol" = progressive ]; then
     curl -fL -o "$workdir/$filename" "$dl_url" || return 1
   elif [ "$protocol" = hls ]; then
@@ -198,7 +202,7 @@ download_track() {
     error "Merging audio parts..."
     ffmpeg -i "concat:$file_list" -c copy "$workdir/$filename" >/dev/null 2>&1 || return 1
   else
-    error "Unknown protocol: $protocol"
+    error "Unknown protocol: '$protocol'"
     return 1
   fi
 

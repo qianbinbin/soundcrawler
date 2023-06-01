@@ -120,8 +120,6 @@ download_track() {
   _url=$1
   # Don't use "path", as "PATH" would be corrupted in some shells
   _path=${_url#*soundcloud.com}
-  _path=${_path%%#*}
-  _path=${_path%%\?*}
   workdir="$TMP_DIR$_path"
   mkdir -p "$workdir"
 
@@ -232,7 +230,28 @@ download_track() {
 }
 
 for url in $URL_LIST; do
-  download_track "$url"
+  url=${url%%#*}
+  url=${url%%\?*}
+  _p=${url#*soundcloud.com}
+  if printf "%s\n" "$_p" | grep -qs '^/[^/]\+/[^/]\+$'; then
+    download_track "$url"
+  elif printf "%s\n" "$_p" | grep -qs '^/[^/]\+/sets/[^/]\+$'; then
+    error "Fetching set '$_p'..."
+    tracks=$(
+      curl -fsSL "$url" |
+        grep -o '^<script>window\.__sc_hydration = .\+;</script>$' | grep -o '\[.\+\]' |
+        jq -r '.[-1].data.tracks[] | .permalink_url // empty'
+    )
+    if [ -z "$tracks" ]; then
+      error "No tracks found, skipping..."
+      continue
+    fi
+    for track in $tracks; do
+      download_track "$track"
+    done
+  else
+    error "Unknown URL: '$u', skipping..."
+  fi
 done
 
 rm -rf "$TMP_DIR"

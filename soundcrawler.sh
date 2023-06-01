@@ -39,7 +39,7 @@ while getopts "iMCI:o:t:h" c; do
   M) METADATA=false ;;
   C) COVER=false ;;
   I) INPUT_FILE="$OPTARG" ;;
-  o) OUT_DIR="$OPTARG" ;;
+  o) OUT_DIR=$(realpath "$OPTARG") ;;
   t) TRANSCODING="$OPTARG" ;;
   h) error "$USAGE" && exit ;;
   *) _exit ;;

@@ -95,10 +95,14 @@ if [ "$INFO" = false ] && ! exists ffmpeg; then
   fi
 fi
 
+curl_with_retry() {
+  curl --retry 5 "$@"
+}
+
 error "Fetching client_id..."
 CLIENT_ID=$(
-  js_url=$(curl -fsSL https://soundcloud.com | grep '<script crossorigin src=.\+></script>' | grep -o 'https.\+\.js' | tail -n 1)
-  curl -fsSL "$js_url" | grep -o '[^_]client_id:"[^"]\+' | head -n 1 | cut -c13-
+  js_url=$(curl_with_retry -fsSL https://soundcloud.com | grep '<script crossorigin src=.\+></script>' | grep -o 'https.\+\.js' | tail -n 1)
+  curl_with_retry -fsSL "$js_url" | grep -o '[^_]client_id:"[^"]\+' | head -n 1 | cut -c13-
 )
 if [ -z "$CLIENT_ID" ]; then
   error "client_id not found."
@@ -110,7 +114,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 mime_to_ext() {
   if [ ! -f "$TMP_DIR/mime" ]; then
-    curl -fsSL https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/http/basics_of_http/mime_types/common_types/index.md |
+    curl_with_retry -fsSL https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/http/basics_of_http/mime_types/common_types/index.md |
       grep '^| `' >"$TMP_DIR/mime"
   fi
   grep "$1" "$TMP_DIR/mime" | grep -o "\`\.[^\`]\+" | cut -c2-
@@ -123,7 +127,7 @@ download_track() {
   workdir="$TMP_DIR$_path"
   mkdir -p "$workdir"
 
-  curl -fsSL "$_url" >"$workdir/html" || return 1
+  curl_with_retry -fsSL "$_url" >"$workdir/html" || return 1
   cover_url=$(grep -o '<img src=".\+>' "$workdir/html" | grep -o 'https[^"]\+')
   grep -o '^<script>window\.__sc_hydration = .\+;</script>$' "$workdir/html" |
     grep -o '\[.\+\]' | jq '.[-1].data' >"$workdir/json"
@@ -173,7 +177,7 @@ download_track() {
 
   auth=$(jq -r '.track_authorization' "$workdir/json")
   dl_url=$(printf "%s\n" "$transcoding" | jq -r '.url')
-  dl_url=$(curl -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth\n" | jq -r '.url')
+  dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth\n" | jq -r '.url')
   [ -z "$dl_url" ] && return 1
   filename=$(printf "%s\n" "$_path" | sed 's|^/||; s|-|_|g; s|/| - |g')
   codec=$(printf "%s\n" "$transcoding" | jq -r '.preset' | sed 's/_[0-9]\+_[0-9]\+$//')
@@ -182,15 +186,15 @@ download_track() {
 
   error "Downloading '$filename'..."
   if [ "$protocol" = progressive ]; then
-    curl -fL -o "$workdir/$filename" "$dl_url" || return 1
+    curl_with_retry -fL -o "$workdir/$filename" "$dl_url" || return 1
   elif [ "$protocol" = hls ]; then
-    curl -fsSL "$dl_url" >"$workdir/m3u8" || return 1
+    curl_with_retry -fsSL "$dl_url" >"$workdir/m3u8" || return 1
     url_list=$(grep '^https\?://.\+$' "$workdir/m3u8")
     total=$(printf "%s\n" "$url_list" | wc -l | awk '{ print $1 }')
     part=0
     file_list=
     for u in $url_list; do
-      curl -fsSL -o "$workdir/$filename.$part" "$u" || return 1
+      curl_with_retry -fsSL -o "$workdir/$filename.$part" "$u" || return 1
       file_list="$file_list|$workdir/$filename.$part"
       : $((part += 1))
       printf "\rDownloading audio parts: %s/%s" "$part" "$total" >&2
@@ -218,7 +222,7 @@ download_track() {
       error "Cover art for Opus not supported by ffmpeg, skipping..."
       error "See https://trac.ffmpeg.org/ticket/4448"
     else
-      curl -fsSL -o "$workdir/cover" "$cover_url" || return 1
+      curl_with_retry -fsSL -o "$workdir/cover" "$cover_url" || return 1
       ffmpeg -i "$workdir/$filename" -i "$workdir/cover" -map 0 -map 1 \
         -c copy "$workdir/tmp.$filename" >/dev/null 2>&1 || return 1
       mv "$workdir/tmp.$filename" "$workdir/$filename"
@@ -238,7 +242,7 @@ for url in $URL_LIST; do
   elif printf "%s\n" "$_p" | grep -qs '^/[^/]\+/sets/[^/]\+$'; then
     error "Fetching set '$_p'..."
     tracks=$(
-      curl -fsSL "$url" |
+      curl_with_retry -fsSL "$url" |
         grep -o '^<script>window\.__sc_hydration = .\+;</script>$' | grep -o '\[.\+\]' |
         jq -r '.[-1].data.tracks[] | .permalink_url // empty'
     )

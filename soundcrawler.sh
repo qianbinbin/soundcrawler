@@ -131,7 +131,7 @@ download_track() {
   mkdir -p "$workdir"
 
   cover_url=$(printf "%s\n" "$json" | jq -r '.artwork_url // empty')
-  _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.jpg$/-t500x500\.jpg/')
+  _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.\(.\+\)$/-t500x500\.\1/')
   if curl_with_retry -fsSL -I "$_cover_url" | grep -i '^content-type:' | awk '{ print $2 }' | grep -qs '^image/'; then
     cover_url="$_cover_url"
   fi

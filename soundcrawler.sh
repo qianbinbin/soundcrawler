@@ -10,6 +10,9 @@ TRANSCODING=mp3
 URL_LIST=
 CLIENT_ID=
 
+THIN_LINE=$(printf '%.s-' $(seq 1 80))
+THICK_LINE=$(printf '%.s=' $(seq 1 80))
+
 error() { printf "%s\n" "$@" >&2; }
 
 USAGE=$(
@@ -99,7 +102,7 @@ curl_with_retry() {
   curl --retry 5 "$@"
 }
 
-error "Fetching client_id..."
+error "==> Fetching client_id..."
 CLIENT_ID=$(
   js_url=$(curl_with_retry -fsSL https://soundcloud.com | grep '<script crossorigin src=.\+></script>' | grep -o 'https.\+\.js' | tail -n 1)
   curl_with_retry -fsSL "$js_url" | grep -o '[^_]client_id:"[^"]\+' | head -n 1 | cut -c13-
@@ -121,32 +124,37 @@ mime_to_ext() {
 }
 
 download_track() {
-  _url=$1
-  # Don't use "path", as "PATH" would be corrupted in some shells
-  _path=${_url#*soundcloud.com}
+  json=$1
+  permalink=$(printf "%s\n" "$json" | jq -r '.permalink_url')
+  _path=${permalink#*soundcloud.com}
   workdir="$TMP_DIR$_path"
   mkdir -p "$workdir"
 
-  curl_with_retry -fsSL "$_url" >"$workdir/html" || return 1
-  cover_url=$(grep -o '<img src=".\+>' "$workdir/html" | grep -o 'https[^"]\+')
-  grep -o '^<script>window\.__sc_hydration = .\+;</script>$' "$workdir/html" |
-    grep -o '\[.\+\]' | jq '.[-1].data' >"$workdir/json"
-
-  id=$(jq -r '.id' "$workdir/json")
-  title=$(jq -r 'if .publisher_metadata.release_title then .publisher_metadata.release_title else .title // empty end' "$workdir/json")
-  artist=$(jq -r 'if .publisher_metadata.artist then .publisher_metadata.artist else .user.username // empty end' "$workdir/json")
-  album=$(jq -r '.publisher_metadata.album_title // empty' "$workdir/json")
-  transcodings=$(jq '.media.transcodings' "$workdir/json")
+  cover_url=$(printf "%s\n" "$json" | jq -r '.artwork_url // empty')
+  _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.jpg$/-t500x500\.jpg/')
+  if curl_with_retry -fsSL -I "$_cover_url" | grep -i '^content-type:' | awk '{ print $2 }' | grep -qs '^image/'; then
+    cover_url="$_cover_url"
+  fi
+  id=$(printf "%s\n" "$json" | jq -r '.id')
+  title=$(printf "%s\n" "$json" | jq -r 'if .publisher_metadata.release_title then .publisher_metadata.release_title else .title // empty end')
+  artist=$(printf "%s\n" "$json" | jq -r 'if .publisher_metadata.artist then .publisher_metadata.artist else .user.username // empty end')
+  album=$(printf "%s\n" "$json" | jq -r '.publisher_metadata.album_title // empty')
+  transcodings=$(printf "%s\n" "$json" | jq '.media.transcodings')
 
   if [ "$INFO" = true ]; then
-    printf "%-20s  %s\n" "ID" "$id"
-    printf "%-20s  %s\n" "Title" "$title"
-    printf "%-20s  %s\n" "Artist" "$artist"
-    printf "%-20s  %s\n" "Album" "$album"
-    printf "%-20s  %s\n" "Cover" "$cover_url"
-    printf "%-20s  %s\n" "Transcodings" "# Available formats and qualities"
-    printf "%s\n" "$transcodings" | jq -c '.[]' | while IFS= read -r t; do
-      printf "\n"
+    printf "%s\n" "$THICK_LINE"
+    printf "  %-18s  %s\n" "Permalink" "$permalink"
+    printf "  %-18s  %s\n" "ID" "$id"
+    printf "  %-18s  %s\n" "Title" "$title"
+    printf "  %-18s  %s\n" "Artist" "$artist"
+    printf "  %-18s  %s\n" "Album" "$album"
+    printf "  %-18s  %s\n" "Cover" "$cover_url"
+    printf "%s\n" "$THIN_LINE"
+    printf "  %-18s  %s\n" "Transcodings" "# Available formats and qualities"
+    t_size=$(printf "%s\n" "$transcodings" | jq 'length')
+    for i in $(seq 0 $((t_size - 1))); do
+      t=$(printf "%s\n" "$transcodings" | jq ".[$i]")
+      printf "%s\n" "$THIN_LINE"
       preset=$(printf "%s\n" "$t" | jq -r '.preset')
       mime=$(printf "%s\n" "$t" | jq -r '.format.mime_type')
       protocol=$(printf "%s\n" "$t" | jq -r '.format.protocol')
@@ -159,10 +167,10 @@ download_track() {
       [ "$protocol" != progressive ] && _t="$_t-$protocol"
       printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download with" "$_t"
     done
-    printf "\n"
     return 0
   fi
 
+  error "$THICK_LINE"
   transcoding=$(
     _codec=$(printf "%s\n" "$TRANSCODING" | cut -d- -f1)
     _protocol=$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')
@@ -171,20 +179,20 @@ download_track() {
       jq ".[] | select((.preset | startswith(\"$_codec\")) and .format.protocol == \"$_protocol\")"
   )
   if [ -z "$transcoding" ]; then
-    error "Transcoding not found, using default"
+    error "Transcoding not found, using default..."
     transcoding=$(printf "%s\n" "$transcodings" | jq '.[0]')
   fi
 
-  auth=$(jq -r '.track_authorization' "$workdir/json")
+  auth=$(printf "%s\n" "$json" | jq -r '.track_authorization')
   dl_url=$(printf "%s\n" "$transcoding" | jq -r '.url')
-  dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth\n" | jq -r '.url')
+  dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth\n" | jq -r '.url // empty')
   [ -z "$dl_url" ] && return 1
-  filename=$(printf "%s\n" "$_path" | sed 's|^/||; s|-|_|g; s|/| - |g')
+  filename=$(printf "%s\n" "$_path" | sed 's|^/||; s|-|_|g; s|/|-|g')
   codec=$(printf "%s\n" "$transcoding" | jq -r '.preset' | sed 's/_[0-9]\+_[0-9]\+$//')
   filename="$filename.$codec"
   protocol=$(printf "%s\n" "$transcoding" | jq -r '.format.protocol')
 
-  error "Downloading '$filename'..."
+  error "==> Downloading '$filename'..."
   if [ "$protocol" = progressive ]; then
     curl_with_retry -fL -o "$workdir/$filename" "$dl_url" || return 1
   elif [ "$protocol" = hls ]; then
@@ -197,11 +205,11 @@ download_track() {
       curl_with_retry -fsSL -o "$workdir/$filename.$part" "$u" || return 1
       file_list="$file_list|$workdir/$filename.$part"
       : $((part += 1))
-      printf "\rDownloading audio parts: %s/%s" "$part" "$total" >&2
+      printf "\r==> Downloading audio parts: %s/%s" "$part" "$total" >&2
     done
-    file_list=$(printf "%s\n" "$file_list" | cut -c2-)
     printf "\n" >&2
-    error "Merging audio parts..."
+    file_list=$(printf "%s\n" "$file_list" | cut -c2-)
+    error "==> Merging audio parts..."
     ffmpeg -i "concat:$file_list" -c copy "$workdir/$filename" >/dev/null 2>&1 || return 1
   else
     error "Unknown protocol: '$protocol'"
@@ -209,7 +217,7 @@ download_track() {
   fi
 
   if [ "$METADATA" = true ]; then
-    error "Writing metadata..."
+    error "==> Writing metadata..."
     ffmpeg -i "$workdir/$filename" \
       -metadata title="$title" -metadata artist="$artist" -metadata album="$album" \
       -c copy "$workdir/tmp.$filename" >/dev/null 2>&1 || return 1
@@ -217,12 +225,13 @@ download_track() {
   fi
 
   if [ "$COVER" = true ]; then
-    error "Writing cover art..."
+    error "==> Fetching cover art..."
     if [ "$codec" = opus ]; then
       error "Cover art for Opus not supported by ffmpeg, skipping..."
       error "See https://trac.ffmpeg.org/ticket/4448"
     else
       curl_with_retry -fsSL -o "$workdir/cover" "$cover_url" || return 1
+      error "==> Writing cover art..."
       ffmpeg -i "$workdir/$filename" -i "$workdir/cover" -map 0 -map 1 \
         -c copy "$workdir/tmp.$filename" >/dev/null 2>&1 || return 1
       mv "$workdir/tmp.$filename" "$workdir/$filename"
@@ -230,6 +239,13 @@ download_track() {
   fi
 
   mv "$workdir/$filename" "$OUT_DIR"
+  if [ -s "$OUT_DIR/$filename" ]; then
+    error "$OUT_DIR/$filename"
+  else
+    error "Error happened when downloading '$filename'."
+    return 1
+  fi
+  unset json
   rm -rf "$workdir"
 }
 
@@ -238,23 +254,49 @@ for url in $URL_LIST; do
   url=${url%%\?*}
   _p=${url#*soundcloud.com}
   if printf "%s\n" "$_p" | grep -qs '^/[^/]\+/[^/]\+$'; then
-    download_track "$url"
-  elif printf "%s\n" "$_p" | grep -qs '^/[^/]\+/sets/[^/]\+$'; then
-    error "Fetching set '$_p'..."
-    tracks=$(
-      curl_with_retry -fsSL "$url" |
-        grep -o '^<script>window\.__sc_hydration = .\+;</script>$' | grep -o '\[.\+\]' |
-        jq -r '.[-1].data.tracks[] | .permalink_url // empty'
+    error "==> Fetching track '$url'..."
+    track_json=$(
+      curl_with_retry -fsSL "$url" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
+        grep -o '\[.\+\]' | jq '.[-1].data // empty'
     )
-    if [ -z "$tracks" ]; then
-      error "No tracks found, skipping..."
+    if [ -z "$track_json" ]; then
+      error "Cannot extract JSON, skipping..."
       continue
     fi
-    for track in $tracks; do
-      download_track "$track"
+    download_track "$track_json"
+    unset track_json
+  elif printf "%s\n" "$_p" | grep -qs '^/[^/]\+/sets/[^/]\+$'; then
+    error "==> Fetching set '$url'..."
+    html=$(curl_with_retry -fsSL "$url")
+    app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+    set_json=$(printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' | grep -o '\[.\+\]' | jq '.[-1].data // empty')
+    unset html
+    error "==> Fetching $(printf "%s\n" "$set_json" | jq -r '.track_count') track(s)..."
+
+    initial_tracks=$(printf "%s\n" "$set_json" | jq '[.tracks[] | select(has("artwork_url"))]')
+    id_list=$(printf "%s\n" "$set_json" | jq '.tracks[] | select(has("artwork_url") | not) | .id' | xargs -n 50 | tr ' ' ',')
+    unset set_json
+    # Do not use buggy `while read`
+    # jq -c '.[]' | while IFS= read -r track
+    # or for some reason you may lose first two characters: {"
+    i_size=$(printf "%s\n" "$initial_tracks" | jq 'length')
+    for i in $(seq 0 $((i_size - 1))); do
+      download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")"
     done
+    unset initial_tracks
+
+    for ids in $id_list; do
+      api_url="https://api-v2.soundcloud.com/tracks?ids=$ids&client_id=$CLIENT_ID&[object Object]=&app_version=$app_version&app_locale=en"
+      additional_tracks=$(curl_with_retry -fsSL -g "$api_url")
+      a_size=$(printf "%s\n" "$additional_tracks" | jq 'length')
+      for i in $(seq 0 $((a_size - 1))); do
+        download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")"
+      done
+      unset additional_tracks
+    done
+    unset id_list
   else
-    error "Unknown URL: '$u', skipping..."
+    error "Unknown URL: '$url', skipping..."
   fi
 done
 

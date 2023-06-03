@@ -21,7 +21,7 @@ USAGE=$(
 Usage: $0 [<options>] <url>...
 Download tracks from SoundCloud.
 
-    -i                    print media information instead of downloading media files (implies -M and -C)
+    -i                    print media information instead of downloading media files
     -M                    do NOT write metadata to media files
     -C                    do NOT write cover art to media files
     -I <file>             read URLs from file

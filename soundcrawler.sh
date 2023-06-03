@@ -134,10 +134,12 @@ download_track() {
   workdir="$TMP_DIR$_path"
   mkdir -p "$workdir"
 
-  cover_url=$(printf "%s\n" "$json" | jq -r '.artwork_url // empty')
-  _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.\(.\+\)$/-t500x500\.\1/')
-  if curl_with_retry -fsSL -I "$_cover_url" | grep -i '^content-type:' | awk '{ print $2 }' | grep -qs '^image/'; then
-    cover_url="$_cover_url"
+  cover_url=$(printf "%s\n" "$json" | jq -r 'if .artwork_url then .artwork_url else .user.avatar_url // empty end')
+  if [ -n "$cover_url" ]; then
+    _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.\(.\+\)$/-t500x500\.\1/')
+    if curl_with_retry -fsSL -I "$_cover_url" | grep -i '^content-type:' | awk '{ print $2 }' | grep -qs '^image/'; then
+      cover_url="$_cover_url"
+    fi
   fi
   id=$(printf "%s\n" "$json" | jq -r '.id')
   title=$(printf "%s\n" "$json" | jq -r 'if .publisher_metadata.release_title then .publisher_metadata.release_title else .title // empty end')
@@ -241,7 +243,9 @@ download_track() {
 
   if [ "$COVER" = true ]; then
     error "==> Fetching cover art..."
-    if [ "$codec" = opus ]; then
+    if [ -z "$cover_url" ]; then
+      error "Cover art not found, skipping..."
+    elif [ "$codec" = opus ]; then
       error "Cover art for Opus not supported by ffmpeg, skipping..."
       error "See https://trac.ffmpeg.org/ticket/4448"
     else

@@ -6,6 +6,7 @@ COVER=true
 INPUT_FILE=
 OUT_DIR=$(realpath .)
 TRANSCODING=mp3
+TRANSCODING_SET=false
 
 URL_LIST=
 CLIENT_ID=
@@ -44,7 +45,10 @@ while getopts "iMCI:o:t:h" c; do
   C) COVER=false ;;
   I) INPUT_FILE="$OPTARG" ;;
   o) OUT_DIR=$(realpath "$OPTARG") ;;
-  t) TRANSCODING="$OPTARG" ;;
+  t)
+    TRANSCODING="$OPTARG"
+    TRANSCODING_SET=true
+    ;;
   h) error "$USAGE" && exit ;;
   *) _exit ;;
   esac
@@ -163,24 +167,35 @@ download_track() {
       printf "    %-18s%s\n" "MIME type" "$mime"
       printf "    %-18s%s\n" "Protocol" "$protocol"
       printf "    %-18s%s\n" "Quality" "$quality"
-      _t=$(printf "%s\n" "$preset" | sed 's/_[0-9]\+_[0-9]\+$//')
+      _t=$(printf "%s\n" "$preset" | sed 's/_.\+$//')
       [ "$protocol" != progressive ] && _t="$_t-$protocol"
       printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download with" "$_t"
     done
     return 0
   fi
 
+  # Assume that for the specific song, all presets of the same codec are the same, e.g.
+  # - mp3_0_0 mp3_0_0 opus_0_0
+  # - mp3_0_1 mp3_0_1 opus_0_0
+  # - mp3_1_0 mp3_1_0 opus_0_0
+  # - mp3_standard mp3_standard opus_0_0
+  # So we simply get rid of the confusing "_.+" and just take the leading codec string.
   error "$THICK_LINE"
   transcoding=$(
     _codec=$(printf "%s\n" "$TRANSCODING" | cut -d- -f1)
     _protocol=$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')
-    [ -z "$_protocol" ] && _protocol=progressive
+    [ -z "$_protocol" ] && [ "$TRANSCODING_SET" = false ] && _protocol=progressive
     printf "%s\n" "$transcodings" |
       jq ".[] | select((.preset | startswith(\"$_codec\")) and .format.protocol == \"$_protocol\")"
   )
   if [ -z "$transcoding" ]; then
-    error "Transcoding not found, using default..."
-    transcoding=$(printf "%s\n" "$transcodings" | jq '.[0]')
+    if [ "$TRANSCODING_SET" = true ]; then
+      error "Transcoding not found."
+      return 1
+    else
+      error "Transcoding not found, using default..."
+      transcoding=$(printf "%s\n" "$transcodings" | jq '.[0]')
+    fi
   fi
 
   auth=$(printf "%s\n" "$json" | jq -r '.track_authorization')
@@ -188,7 +203,7 @@ download_track() {
   dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth\n" | jq -r '.url // empty')
   [ -z "$dl_url" ] && return 1
   filename=$(printf "%s\n" "$_path" | sed 's|^/||; s|-|_|g; s|/|-|g')
-  codec=$(printf "%s\n" "$transcoding" | jq -r '.preset' | sed 's/_[0-9]\+_[0-9]\+$//')
+  codec=$(printf "%s\n" "$transcoding" | jq -r '.preset' | sed 's/_.\+$//')
   filename="$filename.$codec"
   protocol=$(printf "%s\n" "$transcoding" | jq -r '.format.protocol')
 

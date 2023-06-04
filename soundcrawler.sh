@@ -73,11 +73,6 @@ if [ -z "$URL_LIST" ]; then
   _exit
 fi
 
-if [ "$INFO" = true ]; then
-  METADATA=false
-  COVER=false
-fi
-
 if [ "$INFO" = false ] && { [ ! -d "$OUT_DIR" ] || [ ! -w "$OUT_DIR" ]; }; then
   error "Cannot write to directory: '$OUT_DIR'"
   exit 126

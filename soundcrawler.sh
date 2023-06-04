@@ -282,7 +282,7 @@ for url in $URL_LIST; do
       error "Cannot extract JSON, skipping..."
       continue
     fi
-    download_track "$track_json"
+    download_track "$track_json" || error "Cannot fetch the track."
     unset track_json
   elif printf "%s\n" "$_p" | grep -qs '^/[^/]\+/sets/[^/]\+$'; then
     error "==> Fetching set '$url'..."
@@ -300,7 +300,7 @@ for url in $URL_LIST; do
     # or for some reason you may lose first two characters: {"
     i_size=$(printf "%s\n" "$initial_tracks" | jq 'length')
     for i in $(seq 0 $((i_size - 1))); do
-      download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")"
+      download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")" || error "Cannot fetch the track."
     done
     unset initial_tracks
 
@@ -309,7 +309,7 @@ for url in $URL_LIST; do
       additional_tracks=$(curl_with_retry -fsSL -g "$api_url")
       a_size=$(printf "%s\n" "$additional_tracks" | jq 'length')
       for i in $(seq 0 $((a_size - 1))); do
-        download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")"
+        download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")" || error "Cannot fetch the track."
       done
       unset additional_tracks
     done

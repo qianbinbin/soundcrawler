@@ -311,10 +311,38 @@ fetch_playlist() {
   unset id_list
 }
 
+fetch_user_tracks() {
+  error "==> Fetching user's tracks '$1'..."
+  html=$(curl_with_retry -fsSL "$1")
+  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  user_json=$(
+    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
+      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
+  )
+  unset html
+  error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.track_count') track(s)..."
+  user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
+  unset user_json
+  api_url="https://api-v2.soundcloud.com/users/$user_id/tracks?representation=&client_id=$CLIENT_ID&limit=20&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
+  while true; do
+    user_tracks=$(curl_with_retry -fsSL "$api_url")
+    ut_size=$(printf "%s\n" "$user_tracks" | jq '.collection | length')
+    [ "$ut_size" -gt 0 ] && for i in $(seq 0 $((ut_size - 1))); do
+      download_track "$(printf "%s\n" "$user_tracks" | jq ".collection[$i]")" || error "Cannot fetch the track."
+    done
+    api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')
+    [ -z "$api_url" ] && break
+    api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
+    unset user_tracks
+  done
+}
+
 for url in $URL_LIST; do
   url=${url%%#*}
   url=${url%%\?*}
-  if printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/[^/]\+$'; then
+  if printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/tracks$'; then
+    fetch_user_tracks "$url"
+  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/[^/]\+$'; then
     fetch_track "$url"
   elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/sets/[^/]\+$'; then
     fetch_playlist "$url"

@@ -153,7 +153,7 @@ download_track() {
     printf "%s\n" "$THIN_LINE"
     printf "  %-18s  %s\n" "Transcodings" "# Available formats and qualities"
     t_size=$(printf "%s\n" "$transcodings" | jq 'length')
-    for i in $(seq 0 $((t_size - 1))); do
+    [ "$t_size" -gt 0 ] && for i in $(seq 0 $((t_size - 1))); do
       t=$(printf "%s\n" "$transcodings" | jq ".[$i]")
       printf "%s\n" "$THIN_LINE"
       preset=$(printf "%s\n" "$t" | jq -r '.preset')
@@ -271,7 +271,7 @@ for url in $URL_LIST; do
     error "==> Fetching track '$url'..."
     track_json=$(
       curl_with_retry -fsSL "$url" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
-        grep -o '\[.\+\]' | jq '.[-1].data // empty'
+        grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "sound") | .data // empty'
     )
     if [ -z "$track_json" ]; then
       error "Cannot extract JSON, skipping..."
@@ -280,21 +280,24 @@ for url in $URL_LIST; do
     download_track "$track_json" || error "Cannot fetch the track."
     unset track_json
   elif printf "%s\n" "$_p" | grep -qs '^/[^/]\+/sets/[^/]\+$'; then
-    error "==> Fetching set '$url'..."
+    error "==> Fetching playlist '$url'..."
     html=$(curl_with_retry -fsSL "$url")
     app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
-    set_json=$(printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' | grep -o '\[.\+\]' | jq '.[-1].data // empty')
+    playlist_json=$(
+      printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
+        grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "playlist") | .data // empty'
+    )
     unset html
-    error "==> Fetching $(printf "%s\n" "$set_json" | jq -r '.track_count') track(s)..."
+    error "==> Fetching $(printf "%s\n" "$playlist_json" | jq -r '.track_count') track(s)..."
 
-    initial_tracks=$(printf "%s\n" "$set_json" | jq '[.tracks[] | select(has("artwork_url"))]')
-    id_list=$(printf "%s\n" "$set_json" | jq '.tracks[] | select(has("artwork_url") | not) | .id' | xargs -n 50 | tr ' ' ',')
-    unset set_json
+    initial_tracks=$(printf "%s\n" "$playlist_json" | jq '[.tracks[] | select(has("artwork_url"))]')
+    id_list=$(printf "%s\n" "$playlist_json" | jq '.tracks[] | select(has("artwork_url") | not) | .id' | xargs -n 50 | tr ' ' ',')
+    unset playlist_json
     # Do not use buggy `while read`
     # jq -c '.[]' | while IFS= read -r track
     # or for some reason you may lose first two characters: {"
     i_size=$(printf "%s\n" "$initial_tracks" | jq 'length')
-    for i in $(seq 0 $((i_size - 1))); do
+    [ "$i_size" -gt 0 ] && for i in $(seq 0 $((i_size - 1))); do
       download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")" || error "Cannot fetch the track."
     done
     unset initial_tracks
@@ -303,7 +306,7 @@ for url in $URL_LIST; do
       api_url="https://api-v2.soundcloud.com/tracks?ids=$ids&client_id=$CLIENT_ID&[object Object]=&app_version=$app_version&app_locale=en"
       additional_tracks=$(curl_with_retry -fsSL -g "$api_url")
       a_size=$(printf "%s\n" "$additional_tracks" | jq 'length')
-      for i in $(seq 0 $((a_size - 1))); do
+      [ "$a_size" -gt 0 ] && for i in $(seq 0 $((a_size - 1))); do
         download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")" || error "Cannot fetch the track."
       done
       unset additional_tracks

@@ -337,11 +337,47 @@ fetch_user_tracks() {
   done
 }
 
+fetch_user_albums() {
+  error "==> Fetching user's albums '$1'..."
+  # TODO
+  error "Unsupported"
+}
+
+fetch_user_playlists() {
+  error "==> Fetching user's playlists '$1'..."
+  html=$(curl_with_retry -fsSL "$1")
+  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  user_json=$(
+    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
+      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
+  )
+  unset html
+  error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.playlist_count') playlist(s)..."
+  user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
+  unset user_json
+  api_url="https://api-v2.soundcloud.com/users/$user_id/playlists_without_albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
+  while true; do
+    user_playlists=$(curl_with_retry -fsSL "$api_url")
+    up_size=$(printf "%s\n" "$user_playlists" | jq '.collection | length')
+    [ "$up_size" -gt 0 ] && for i in $(seq 0 $((up_size - 1))); do
+      fetch_playlist "$(printf "%s\n" "$user_playlists" | jq -r ".collection[$i].permalink_url")"
+    done
+    api_url=$(printf "%s\n" "$user_playlists" | jq -r '.next_href // empty')
+    [ -z "$api_url" ] && break
+    api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
+    unset user_playlists
+  done
+}
+
 for url in $URL_LIST; do
   url=${url%%#*}
   url=${url%%\?*}
   if printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/tracks$'; then
     fetch_user_tracks "$url"
+  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/albums$'; then
+    fetch_user_albums "$url"
+  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/sets$'; then
+    fetch_user_playlists "$url"
   elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/[^/]\+$'; then
     fetch_track "$url"
   elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/sets/[^/]\+$'; then

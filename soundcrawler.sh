@@ -339,8 +339,29 @@ fetch_user_tracks() {
 
 fetch_user_albums() {
   error "==> Fetching user's albums '$1'..."
-  # TODO
-  error "Unsupported"
+  html=$(curl_with_retry -fsSL "$1")
+  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  user_json=$(
+    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
+      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
+  )
+  unset html
+  # No album count
+  # error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.album_count') album(s)..."
+  user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
+  unset user_json
+  api_url="https://api-v2.soundcloud.com/users/$user_id/albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
+  while true; do
+    user_albums=$(curl_with_retry -fsSL "$api_url")
+    ua_size=$(printf "%s\n" "$user_albums" | jq '.collection | length')
+    [ "$ua_size" -gt 0 ] && for i in $(seq 0 $((ua_size - 1))); do
+      fetch_playlist "$(printf "%s\n" "$user_albums" | jq -r ".collection[$i].permalink_url")"
+    done
+    api_url=$(printf "%s\n" "$user_albums" | jq -r '.next_href // empty')
+    [ -z "$api_url" ] && break
+    api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
+    unset user_albums
+  done
 }
 
 fetch_user_playlists() {

@@ -178,6 +178,7 @@ download_track() {
   # - mp3_standard mp3_standard opus_0_0
   # So we simply get rid of the confusing "_.+" and just take the leading codec string.
   error "$THICK_LINE"
+  error "==> Downloading '$permalink'..."
   transcoding=$(
     _codec=$(printf "%s\n" "$TRANSCODING" | cut -d- -f1)
     _protocol=$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')
@@ -190,8 +191,13 @@ download_track() {
       error "Transcoding not found."
       return 1
     else
-      error "Transcoding not found, using default..."
-      transcoding=$(printf "%s\n" "$transcodings" | jq '.[0]')
+      error "Transcoding not found, trying default..."
+      transcoding=$(printf "%s\n" "$transcodings" | jq '.[0] // empty')
+      if [ -z "$transcoding" ]; then
+        error "Transcoding not available, track details:"
+        error "$(printf "%s\n" "$json" | jq -c)"
+        return 1
+      fi
     fi
   fi
 

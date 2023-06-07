@@ -21,12 +21,12 @@ USAGE=$(
 Usage: $0 [<options>] <url>...
 Download tracks from SoundCloud.
 
-    -i                    print media information instead of downloading media files
+    -i                    print media information instead of downloading the files
     -M                    do NOT write metadata to media files
     -C                    do NOT write cover art to media files
     -I <file>             read URLs from file
-    -o <dir>              set output directory
-    -t <transcoding>      specify a transcoding to download
+    -o <dir>              set the output directory
+    -t <transcoding>      specify a transcoding to use when downloading
     -h                    display this help and exit
 
 Home page: <https://github.com/qianbinbin/soundcrawler>
@@ -149,7 +149,7 @@ download_track() {
     printf "  %-18s  %s\n" "Title" "$title"
     printf "  %-18s  %s\n" "Artist" "$artist"
     printf "  %-18s  %s\n" "Album" "$album"
-    printf "  %-18s  %s\n" "Cover" "$cover_url"
+    printf "  %-18s  %s\n" "Cover Art" "$cover_url"
     printf "%s\n" "$THIN_LINE"
     printf "  %-18s  %s\n" "Transcodings" "# Available formats and qualities"
     t_size=$(printf "%s\n" "$transcodings" | jq 'length')
@@ -161,12 +161,12 @@ download_track() {
       protocol=$(printf "%s\n" "$t" | jq -r '.format.protocol')
       quality=$(printf "%s\n" "$t" | jq -r '.quality')
       printf "  - %-18s%s\n" "Preset" "$preset"
-      printf "    %-18s%s\n" "MIME type" "$mime"
+      printf "    %-18s%s\n" "MIME Type" "$mime"
       printf "    %-18s%s\n" "Protocol" "$protocol"
       printf "    %-18s%s\n" "Quality" "$quality"
       _t=$(printf "%s\n" "$preset" | sed 's/_.\+$//')
       [ "$protocol" != progressive ] && _t="$_t-$protocol"
-      printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download with" "$_t"
+      printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download With" "$_t"
     done
     return 0
   fi

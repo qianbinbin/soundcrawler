@@ -277,6 +277,7 @@ fetch_track() {
   )
   if [ -z "$track_json" ]; then
     error "Cannot extract JSON, skipping..."
+    return 1
   fi
   download_track "$track_json" || error "Cannot fetch the track."
   unset track_json
@@ -291,6 +292,10 @@ fetch_playlist() {
       grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "playlist") | .data // empty'
   )
   unset html
+  if [ -z "$playlist_json" ]; then
+    error "Cannot extract JSON, skipping..."
+    return 1
+  fi
   error "==> Fetching $(printf "%s\n" "$playlist_json" | jq -r '.track_count') track(s)..."
 
   initial_tracks=$(printf "%s\n" "$playlist_json" | jq '[.tracks[] | select(has("artwork_url"))]')
@@ -326,6 +331,10 @@ fetch_user_tracks() {
       grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset html
+  if [ -z "$user_json" ]; then
+    error "Cannot extract JSON, skipping..."
+    return 1
+  fi
   error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.track_count') track(s)..."
   user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
   unset user_json
@@ -352,6 +361,10 @@ fetch_user_albums() {
       grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset html
+  if [ -z "$user_json" ]; then
+    error "Cannot extract JSON, skipping..."
+    return 1
+  fi
   # No album count
   # error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.album_count') album(s)..."
   user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
@@ -379,6 +392,10 @@ fetch_user_playlists() {
       grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset html
+  if [ -z "$user_json" ]; then
+    error "Cannot extract JSON, skipping..."
+    return 1
+  fi
   error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.playlist_count') playlist(s)..."
   user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
   unset user_json

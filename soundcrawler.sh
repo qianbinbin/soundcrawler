@@ -122,9 +122,12 @@ mime_to_ext() {
   grep "$1" "$TMP_DIR/mime" | grep -o "\`\.[^\`]\+" | cut -c2-
 }
 
-download_track() {
+# Run in subshell
+# Do NOT call it with 'if', '||', etc. so that 'set -e' can work.
+download_track() (
+  set -e
   json=$1
-  permalink=$(printf "%s\n" "$json" | jq -r '.permalink_url')
+  permalink=$(printf "%s\n" "$json" | jq -r '.permalink_url // empty')
   _path=${permalink#*soundcloud.com}
   workdir="$TMP_DIR$_path"
   mkdir -p "$workdir"
@@ -136,11 +139,11 @@ download_track() {
       cover_url="$_cover_url"
     fi
   fi
-  id=$(printf "%s\n" "$json" | jq -r '.id')
+  id=$(printf "%s\n" "$json" | jq -r '.id // empty')
   title=$(printf "%s\n" "$json" | jq -r 'if .publisher_metadata.release_title then .publisher_metadata.release_title else .title // empty end')
   artist=$(printf "%s\n" "$json" | jq -r 'if .publisher_metadata.artist then .publisher_metadata.artist else .user.username // empty end')
   album=$(printf "%s\n" "$json" | jq -r '.publisher_metadata.album_title // empty')
-  transcodings=$(printf "%s\n" "$json" | jq '.media.transcodings')
+  transcodings=$(printf "%s\n" "$json" | jq '.media.transcodings // []')
 
   if [ "$INFO" = true ]; then
     printf "%s\n" "$THICK_LINE"
@@ -156,17 +159,19 @@ download_track() {
     [ "$t_size" -gt 0 ] && for i in $(seq 0 $((t_size - 1))); do
       t=$(printf "%s\n" "$transcodings" | jq ".[$i]")
       printf "%s\n" "$THIN_LINE"
-      preset=$(printf "%s\n" "$t" | jq -r '.preset')
-      mime=$(printf "%s\n" "$t" | jq -r '.format.mime_type')
-      protocol=$(printf "%s\n" "$t" | jq -r '.format.protocol')
-      quality=$(printf "%s\n" "$t" | jq -r '.quality')
+      preset=$(printf "%s\n" "$t" | jq -r '.preset // empty')
+      mime=$(printf "%s\n" "$t" | jq -r '.format.mime_type // empty')
+      protocol=$(printf "%s\n" "$t" | jq -r '.format.protocol // empty')
+      quality=$(printf "%s\n" "$t" | jq -r '.quality // empty')
       printf "  - %-18s%s\n" "Preset" "$preset"
       printf "    %-18s%s\n" "MIME Type" "$mime"
       printf "    %-18s%s\n" "Protocol" "$protocol"
       printf "    %-18s%s\n" "Quality" "$quality"
-      _t=$(printf "%s\n" "$preset" | sed 's/_.\+$//')
-      [ "$protocol" != progressive ] && _t="$_t-$protocol"
-      printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download With" "$_t"
+      transcoding=$(printf "%s\n" "$preset" | sed 's/_.\+$//')
+      if [ -n "$transcoding" ]; then
+        [ "$protocol" != progressive ] && transcoding="$transcoding-$protocol"
+        printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download With" "$transcoding"
+      fi
     done
     return 0
   fi
@@ -180,11 +185,12 @@ download_track() {
   error "$THICK_LINE"
   error "==> Downloading '$permalink'..."
   transcoding=$(
-    _codec=$(printf "%s\n" "$TRANSCODING" | cut -d- -f1)
-    _protocol=$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')
-    [ -z "$_protocol" ] && [ "$TRANSCODING_SET" = false ] && _protocol=progressive
+    codec=$(printf "%s\n" "$TRANSCODING" | cut -d- -f1)
+    protocol=$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')
+    [ -z "$protocol" ] && [ "$TRANSCODING_SET" = false ] && protocol=progressive
+    # `jq` will return empty string rather than 'null' if no transcoding found
     printf "%s\n" "$transcodings" |
-      jq ".[] | select((.preset | startswith(\"$_codec\")) and .format.protocol == \"$_protocol\")"
+      jq ".[] | select((.preset | startswith(\"$codec\")) and .format.protocol == \"$protocol\")"
   )
   if [ -z "$transcoding" ]; then
     if [ "$TRANSCODING_SET" = true ]; then
@@ -201,26 +207,28 @@ download_track() {
     fi
   fi
 
-  auth=$(printf "%s\n" "$json" | jq -r '.track_authorization')
-  dl_url=$(printf "%s\n" "$transcoding" | jq -r '.url')
-  dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth\n" | jq -r '.url // empty')
-  [ -z "$dl_url" ] && return 1
+  auth=$(printf "%s\n" "$json" | jq -r '.track_authorization // empty')
+  dl_url=$(printf "%s\n" "$transcoding" | jq -r '.url // empty')
+  dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth" | jq -r '.url // empty')
+  [ -n "$dl_url" ]
   filename=$(printf "%s\n" "$_path" | sed 's|^/||; s|-|_|g; s|/|-|g')
-  codec=$(printf "%s\n" "$transcoding" | jq -r '.preset' | sed 's/_.\+$//')
+  codec=$(printf "%s\n" "$transcoding" | jq -r '.preset // empty' | sed 's/_.\+$//')
+  [ -n "$codec" ]
   filename="$filename.$codec"
-  protocol=$(printf "%s\n" "$transcoding" | jq -r '.format.protocol')
+  protocol=$(printf "%s\n" "$transcoding" | jq -r '.format.protocol // empty')
+  [ -n "$protocol" ]
 
   error "==> Downloading '$filename'..."
   if [ "$protocol" = progressive ]; then
-    curl_with_retry -fL -o "$workdir/$filename" "$dl_url" || return 1
+    curl_with_retry -fL -o "$workdir/$filename" "$dl_url"
   elif [ "$protocol" = hls ]; then
-    curl_with_retry -fsSL "$dl_url" >"$workdir/m3u8" || return 1
+    curl_with_retry -fsSL "$dl_url" >"$workdir/m3u8"
     url_list=$(grep '^https\?://.\+$' "$workdir/m3u8")
     total=$(printf "%s\n" "$url_list" | wc -l | awk '{ print $1 }')
     part=0
     file_list=
     for u in $url_list; do
-      curl_with_retry -fsSL -o "$workdir/$filename.$part" "$u" || return 1
+      curl_with_retry -fsSL -o "$workdir/$filename.$part" "$u"
       file_list="$file_list|$workdir/$filename.$part"
       : $((part += 1))
       printf "\r==> Downloading audio parts: %s/%s" "$part" "$total" >&2
@@ -228,7 +236,7 @@ download_track() {
     printf "\n" >&2
     file_list=$(printf "%s\n" "$file_list" | cut -c2-)
     error "==> Merging audio parts..."
-    ffmpeg -i "concat:$file_list" -c copy "$workdir/$filename" >/dev/null 2>&1 || return 1
+    ffmpeg -loglevel warning -hide_banner -i "concat:$file_list" -c copy "$workdir/$filename"
   else
     error "Unknown protocol: '$protocol'"
     return 1
@@ -236,9 +244,9 @@ download_track() {
 
   if [ "$METADATA" = true ]; then
     error "==> Writing metadata..."
-    ffmpeg -i "$workdir/$filename" \
+    ffmpeg -loglevel warning -hide_banner -i "$workdir/$filename" \
       -metadata title="$title" -metadata artist="$artist" -metadata album="$album" \
-      -c copy "$workdir/tmp.$filename" >/dev/null 2>&1 || return 1
+      -c copy "$workdir/tmp.$filename"
     mv "$workdir/tmp.$filename" "$workdir/$filename"
   fi
 
@@ -250,24 +258,18 @@ download_track() {
       error "Cover art for Opus not supported by ffmpeg, skipping..."
       error "See https://trac.ffmpeg.org/ticket/4448"
     else
-      curl_with_retry -fsSL -o "$workdir/cover" "$cover_url" || return 1
+      curl_with_retry -fsSL -o "$workdir/cover" "$cover_url"
       error "==> Writing cover art..."
-      ffmpeg -i "$workdir/$filename" -i "$workdir/cover" -map 0 -map 1 \
-        -c copy "$workdir/tmp.$filename" >/dev/null 2>&1 || return 1
+      ffmpeg -loglevel warning -hide_banner -i "$workdir/$filename" -i "$workdir/cover" \
+        -map 0 -map 1 -c copy "$workdir/tmp.$filename"
       mv "$workdir/tmp.$filename" "$workdir/$filename"
     fi
   fi
 
   mv "$workdir/$filename" "$OUT_DIR"
-  if [ -s "$OUT_DIR/$filename" ]; then
-    error "$OUT_DIR/$filename"
-  else
-    error "Error happened when downloading '$filename'."
-    return 1
-  fi
-  unset json
   rm -rf "$workdir"
-}
+  error "$OUT_DIR/$filename"
+)
 
 fetch_track() {
   error "==> Fetching track '$1'..."
@@ -279,7 +281,8 @@ fetch_track() {
     error "Cannot extract JSON, skipping..."
     return 1
   fi
-  download_track "$track_json" || error "Cannot fetch the track."
+  download_track "$track_json"
+  [ $? -ne 0 ] && error "Cannot fetch the track."
   unset track_json
 }
 
@@ -306,7 +309,8 @@ fetch_playlist() {
   # or for some reason you may lose first two characters: {"
   i_size=$(printf "%s\n" "$initial_tracks" | jq 'length')
   [ "$i_size" -gt 0 ] && for i in $(seq 0 $((i_size - 1))); do
-    download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")" || error "Cannot fetch the track."
+    download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")"
+    [ $? -ne 0 ] && error "Cannot fetch the track."
   done
   unset initial_tracks
 
@@ -315,7 +319,8 @@ fetch_playlist() {
     additional_tracks=$(curl_with_retry -fsSL -g "$api_url")
     a_size=$(printf "%s\n" "$additional_tracks" | jq 'length')
     [ "$a_size" -gt 0 ] && for i in $(seq 0 $((a_size - 1))); do
-      download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")" || error "Cannot fetch the track."
+      download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")"
+      [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     unset additional_tracks
   done
@@ -343,7 +348,8 @@ fetch_user_tracks() {
     user_tracks=$(curl_with_retry -fsSL "$api_url")
     ut_size=$(printf "%s\n" "$user_tracks" | jq '.collection | length')
     [ "$ut_size" -gt 0 ] && for i in $(seq 0 $((ut_size - 1))); do
-      download_track "$(printf "%s\n" "$user_tracks" | jq ".collection[$i]")" || error "Cannot fetch the track."
+      download_track "$(printf "%s\n" "$user_tracks" | jq ".collection[$i]")"
+      [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')
     [ -z "$api_url" ] && break

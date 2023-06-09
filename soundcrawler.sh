@@ -4,6 +4,7 @@ INFO=false
 METADATA=true
 COVER=true
 INPUT_FILE=
+INPUT_FILE_SET=false
 OUT_DIR=$(realpath .)
 TRANSCODING=mp3
 TRANSCODING_SET=false
@@ -43,7 +44,10 @@ while getopts "iMCI:o:t:h" c; do
   i) INFO=true ;;
   M) METADATA=false ;;
   C) COVER=false ;;
-  I) INPUT_FILE="$OPTARG" ;;
+  I)
+    INPUT_FILE="$OPTARG"
+    INPUT_FILE_SET=true
+    ;;
   o) OUT_DIR=$(realpath "$OPTARG") ;;
   t)
     TRANSCODING="$OPTARG"
@@ -57,25 +61,20 @@ done
 shift $((OPTIND - 1))
 
 [ $# -ne 0 ] && URL_LIST=$*
-[ -r "$INPUT_FILE" ] && URL_LIST="$URL_LIST $(cat "$INPUT_FILE")"
-URL_LIST=$(
-  for u in $URL_LIST; do
-    if printf "%s\n" "$u" | grep -qs '^https://soundcloud.com/.\+$'; then
-      printf "%s\n" "$u"
-    else
-      error "Unknown URL: '$u', skipping..."
-    fi
-  done
-)
 
-if [ -z "$URL_LIST" ]; then
+if [ "$INPUT_FILE_SET" = true ] && { [ ! -f "$INPUT_FILE" ] || [ ! -r "$INPUT_FILE" ]; }; then
+  error "Cannot access file: '$INPUT_FILE'."
+  exit 1
+fi
+
+if [ -z "$URL_LIST" ] && [ "$INPUT_FILE_SET" = false ]; then
   error "No URL provided."
   _exit
 fi
 
 if [ "$INFO" = false ] && { [ ! -d "$OUT_DIR" ] || [ ! -w "$OUT_DIR" ]; }; then
-  error "Cannot write to directory: '$OUT_DIR'"
-  exit 126
+  error "Cannot write to directory: '$OUT_DIR'."
+  exit 1
 fi
 
 exists() {
@@ -238,7 +237,7 @@ download_track() (
     error "==> Merging audio parts..."
     ffmpeg -loglevel warning -hide_banner -i "concat:$file_list" -c copy "$workdir/$filename"
   else
-    error "Unknown protocol: '$protocol'"
+    error "Unknown protocol: '$protocol'."
     return 1
   fi
 
@@ -419,22 +418,32 @@ fetch_user_playlists() {
   done
 }
 
-for url in $URL_LIST; do
-  url=${url%%#*}
-  url=${url%%\?*}
-  if printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/tracks$'; then
-    fetch_user_tracks "$url"
-  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/albums$'; then
-    fetch_user_albums "$url"
-  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/sets$'; then
-    fetch_user_playlists "$url"
-  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/[^/]\+$'; then
-    fetch_track "$url"
-  elif printf "%s\n" "$url" | grep -qs '^https://soundcloud.com/[^/]\+/sets/[^/]\+$'; then
-    fetch_playlist "$url"
+fetch_url() {
+  _url=${1%%#*}
+  _url=${_url%%\?*}
+  if printf "%s\n" "$_url" | grep -qs '^https://soundcloud.com/[^/]\+/tracks$'; then
+    fetch_user_tracks "$_url"
+  elif printf "%s\n" "$_url" | grep -qs '^https://soundcloud.com/[^/]\+/albums$'; then
+    fetch_user_albums "$_url"
+  elif printf "%s\n" "$_url" | grep -qs '^https://soundcloud.com/[^/]\+/sets$'; then
+    fetch_user_playlists "$_url"
+  elif printf "%s\n" "$_url" | grep -qs '^https://soundcloud.com/[^/]\+/[^/]\+$'; then
+    fetch_track "$_url"
+  elif printf "%s\n" "$_url" | grep -qs '^https://soundcloud.com/[^/]\+/sets/[^/]\+$'; then
+    fetch_playlist "$_url"
   else
-    error "Unknown URL: '$url', skipping..."
+    error "Skipping unknown URL: '$1'..."
   fi
+}
+
+for url in $URL_LIST; do
+  fetch_url "$url"
 done
+
+if [ "$INPUT_FILE_SET" = true ]; then
+  while read -r url; do
+    [ -n "$url" ] && fetch_url "$url"
+  done <"$INPUT_FILE"
+fi
 
 rm -rf "$TMP_DIR"

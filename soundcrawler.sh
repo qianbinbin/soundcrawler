@@ -154,9 +154,7 @@ download_track() (
     printf "  %-18s  %s\n" "Cover Art" "$cover_url"
     printf "%s\n" "$THIN_LINE"
     printf "  %-18s  %s\n" "Transcodings" "# Available formats and qualities"
-    t_size=$(printf "%s\n" "$transcodings" | jq 'length')
-    [ "$t_size" -gt 0 ] && for i in $(seq 0 $((t_size - 1))); do
-      t=$(printf "%s\n" "$transcodings" | jq ".[$i]")
+    printf "%s\n" "$transcodings" | jq -c '.[]' | while read -r t; do
       printf "%s\n" "$THIN_LINE"
       preset=$(printf "%s\n" "$t" | jq -r '.preset // empty')
       mime=$(printf "%s\n" "$t" | jq -r '.format.mime_type // empty')
@@ -235,7 +233,7 @@ download_track() (
     printf "\n" >&2
     file_list=$(printf "%s\n" "$file_list" | cut -c2-)
     error "==> Merging audio parts..."
-    ffmpeg -loglevel warning -hide_banner -i "concat:$file_list" -c copy "$workdir/$filename"
+    ffmpeg -nostdin -loglevel warning -hide_banner -i "concat:$file_list" -c copy "$workdir/$filename"
   else
     error "Unknown protocol: '$protocol'."
     return 1
@@ -243,7 +241,7 @@ download_track() (
 
   if [ "$METADATA" = true ]; then
     error "==> Writing metadata..."
-    ffmpeg -loglevel warning -hide_banner -i "$workdir/$filename" \
+    ffmpeg -nostdin -loglevel warning -hide_banner -i "$workdir/$filename" \
       -metadata title="$title" -metadata artist="$artist" -metadata album="$album" \
       -c copy "$workdir/tmp.$filename"
     mv "$workdir/tmp.$filename" "$workdir/$filename"
@@ -259,7 +257,7 @@ download_track() (
     else
       curl_with_retry -fsSL -o "$workdir/cover" "$cover_url"
       error "==> Writing cover art..."
-      ffmpeg -loglevel warning -hide_banner -i "$workdir/$filename" -i "$workdir/cover" \
+      ffmpeg -nostdin -loglevel warning -hide_banner -i "$workdir/$filename" -i "$workdir/cover" \
         -map 0 -map 1 -c copy "$workdir/tmp.$filename"
       mv "$workdir/tmp.$filename" "$workdir/$filename"
     fi
@@ -303,12 +301,8 @@ fetch_playlist() {
   initial_tracks=$(printf "%s\n" "$playlist_json" | jq '[.tracks[] | select(has("artwork_url"))]')
   id_list=$(printf "%s\n" "$playlist_json" | jq '.tracks[] | select(has("artwork_url") | not) | .id' | xargs -n 50 | tr ' ' ',')
   unset playlist_json
-  # Do not use buggy `while read`
-  # jq -c '.[]' | while IFS= read -r track
-  # or for some reason you may lose first two characters: {"
-  i_size=$(printf "%s\n" "$initial_tracks" | jq 'length')
-  [ "$i_size" -gt 0 ] && for i in $(seq 0 $((i_size - 1))); do
-    download_track "$(printf "%s\n" "$initial_tracks" | jq ".[$i]")"
+  printf "%s\n" "$initial_tracks" | jq -c '.[]' | while read -r track_json; do
+    download_track "$track_json"
     [ $? -ne 0 ] && error "Cannot fetch the track."
   done
   unset initial_tracks
@@ -316,9 +310,8 @@ fetch_playlist() {
   for ids in $id_list; do
     api_url="https://api-v2.soundcloud.com/tracks?ids=$ids&client_id=$CLIENT_ID&[object Object]=&app_version=$app_version&app_locale=en"
     additional_tracks=$(curl_with_retry -fsSL -g "$api_url")
-    a_size=$(printf "%s\n" "$additional_tracks" | jq 'length')
-    [ "$a_size" -gt 0 ] && for i in $(seq 0 $((a_size - 1))); do
-      download_track "$(printf "%s\n" "$additional_tracks" | jq ".[$i]")"
+    printf "%s\n" "$additional_tracks" | jq -c '.[]' | while read -r track_json; do
+      download_track "$track_json"
       [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     unset additional_tracks
@@ -345,9 +338,8 @@ fetch_user_tracks() {
   api_url="https://api-v2.soundcloud.com/users/$user_id/tracks?representation=&client_id=$CLIENT_ID&limit=20&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
   while true; do
     user_tracks=$(curl_with_retry -fsSL "$api_url")
-    ut_size=$(printf "%s\n" "$user_tracks" | jq '.collection | length')
-    [ "$ut_size" -gt 0 ] && for i in $(seq 0 $((ut_size - 1))); do
-      download_track "$(printf "%s\n" "$user_tracks" | jq ".collection[$i]")"
+    printf "%s\n" "$user_tracks" | jq -c '.collection[]' | while read -r track_json; do
+      download_track "$track_json"
       [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')
@@ -377,14 +369,14 @@ fetch_user_albums() {
   api_url="https://api-v2.soundcloud.com/users/$user_id/albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
   while true; do
     user_albums=$(curl_with_retry -fsSL "$api_url")
-    ua_size=$(printf "%s\n" "$user_albums" | jq '.collection | length')
-    [ "$ua_size" -gt 0 ] && for i in $(seq 0 $((ua_size - 1))); do
-      fetch_playlist "$(printf "%s\n" "$user_albums" | jq -r ".collection[$i].permalink_url")"
-    done
     api_url=$(printf "%s\n" "$user_albums" | jq -r '.next_href // empty')
+    album_urls=$(printf "%s\n" "$user_albums" | jq -r '.collection[].permalink_url // empty')
+    unset user_albums
+    for pl_url in $album_urls; do
+      fetch_playlist "$pl_url"
+    done
     [ -z "$api_url" ] && break
     api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
-    unset user_albums
   done
 }
 
@@ -407,14 +399,14 @@ fetch_user_playlists() {
   api_url="https://api-v2.soundcloud.com/users/$user_id/playlists_without_albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
   while true; do
     user_playlists=$(curl_with_retry -fsSL "$api_url")
-    up_size=$(printf "%s\n" "$user_playlists" | jq '.collection | length')
-    [ "$up_size" -gt 0 ] && for i in $(seq 0 $((up_size - 1))); do
-      fetch_playlist "$(printf "%s\n" "$user_playlists" | jq -r ".collection[$i].permalink_url")"
-    done
     api_url=$(printf "%s\n" "$user_playlists" | jq -r '.next_href // empty')
+    playlist_urls=$(printf "%s\n" "$user_playlists" | jq -r '.collection[].permalink_url // empty')
+    unset user_playlists
+    for pl_url in $playlist_urls; do
+      fetch_playlist "$pl_url"
+    done
     [ -z "$api_url" ] && break
     api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
-    unset user_playlists
   done
 }
 

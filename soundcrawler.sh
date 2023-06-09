@@ -337,7 +337,7 @@ fetch_user_tracks() {
   unset user_json
   api_url="https://api-v2.soundcloud.com/users/$user_id/tracks?representation=&client_id=$CLIENT_ID&limit=20&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
   while true; do
-    user_tracks=$(curl_with_retry -fsSL "$api_url")
+    user_tracks=$(curl_with_retry -fsSL -g "$api_url")
     printf "%s\n" "$user_tracks" | jq -c '.collection[]' | while read -r track_json; do
       download_track "$track_json"
       [ $? -ne 0 ] && error "Cannot fetch the track."
@@ -368,7 +368,7 @@ fetch_user_albums() {
   unset user_json
   api_url="https://api-v2.soundcloud.com/users/$user_id/albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
   while true; do
-    user_albums=$(curl_with_retry -fsSL "$api_url")
+    user_albums=$(curl_with_retry -fsSL -g "$api_url")
     api_url=$(printf "%s\n" "$user_albums" | jq -r '.next_href // empty')
     album_urls=$(printf "%s\n" "$user_albums" | jq -r '.collection[].permalink_url // empty')
     unset user_albums
@@ -398,7 +398,7 @@ fetch_user_playlists() {
   unset user_json
   api_url="https://api-v2.soundcloud.com/users/$user_id/playlists_without_albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
   while true; do
-    user_playlists=$(curl_with_retry -fsSL "$api_url")
+    user_playlists=$(curl_with_retry -fsSL -g "$api_url")
     api_url=$(printf "%s\n" "$user_playlists" | jq -r '.next_href // empty')
     playlist_urls=$(printf "%s\n" "$user_playlists" | jq -r '.collection[].permalink_url // empty')
     unset user_playlists

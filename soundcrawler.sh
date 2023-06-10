@@ -121,7 +121,7 @@ mime_to_ext() {
   grep "$1" "$TMP_DIR/mime" | grep -o "\`\.[^\`]\+" | cut -c2-
 }
 
-# Run in subshell
+# Run in subshell.
 # Do NOT call it with 'if', '||', etc. so that 'set -e' can work.
 download_track() (
   set -e
@@ -133,7 +133,7 @@ download_track() (
 
   cover_url=$(printf "%s\n" "$json" | jq -r 'if .artwork_url then .artwork_url else .user.avatar_url // empty end')
   if [ -n "$cover_url" ]; then
-    _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.\(.\+\)$/-t500x500\.\1/')
+    _cover_url=$(printf "%s\n" "$cover_url" | sed 's/-large\.\(.*\)$/-t500x500\.\1/')
     if curl_with_retry -fsSL -I "$_cover_url" | grep -i '^content-type:' | awk '{ print $2 }' | grep -qs '^image/'; then
       cover_url="$_cover_url"
     fi
@@ -144,6 +144,12 @@ download_track() (
   album=$(printf "%s\n" "$json" | jq -r '.publisher_metadata.album_title // empty')
   transcodings=$(printf "%s\n" "$json" | jq '.media.transcodings // []')
 
+  # Assume that for the specific song, all presets of the same codec are the same, e.g.
+  # - mp3_0_0 mp3_0_0 opus_0_0
+  # - mp3_0_1 mp3_0_1 opus_0_0
+  # - mp3_1_0 mp3_1_0 opus_0_0
+  # - mp3_standard mp3_standard opus_0_0
+  # So we simply get rid of the confusing "_.*" and just take the leading codec string.
   if [ "$INFO" = true ]; then
     printf "%s\n" "$THICK_LINE"
     printf "  %-18s  %s\n" "Permalink" "$permalink"
@@ -164,7 +170,7 @@ download_track() (
       printf "    %-18s%s\n" "MIME Type" "$mime"
       printf "    %-18s%s\n" "Protocol" "$protocol"
       printf "    %-18s%s\n" "Quality" "$quality"
-      transcoding=$(printf "%s\n" "$preset" | sed 's/_.\+$//')
+      transcoding=$(printf "%s\n" "$preset" | sed 's/_.*$//')
       if [ -n "$transcoding" ]; then
         [ "$protocol" != progressive ] && transcoding="$transcoding-$protocol"
         printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download With" "$transcoding"
@@ -173,12 +179,6 @@ download_track() (
     return 0
   fi
 
-  # Assume that for the specific song, all presets of the same codec are the same, e.g.
-  # - mp3_0_0 mp3_0_0 opus_0_0
-  # - mp3_0_1 mp3_0_1 opus_0_0
-  # - mp3_1_0 mp3_1_0 opus_0_0
-  # - mp3_standard mp3_standard opus_0_0
-  # So we simply get rid of the confusing "_.+" and just take the leading codec string.
   error "$THICK_LINE"
   error "==> Downloading '$permalink'..."
   transcoding=$(
@@ -209,7 +209,7 @@ download_track() (
   dl_url=$(curl_with_retry -fsSL "$dl_url?client_id=$CLIENT_ID&track_authorization=$auth" | jq -r '.url // empty')
   [ -n "$dl_url" ]
   filename=$(printf "%s\n" "$_path" | sed 's|^/||; s|-|_|g; s|/|-|g')
-  codec=$(printf "%s\n" "$transcoding" | jq -r '.preset // empty' | sed 's/_.\+$//')
+  codec=$(printf "%s\n" "$transcoding" | jq -r '.preset // empty' | sed 's/_.*$//')
   [ -n "$codec" ]
   filename="$filename.$codec"
   protocol=$(printf "%s\n" "$transcoding" | jq -r '.format.protocol // empty')

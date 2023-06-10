@@ -271,8 +271,8 @@ download_track() (
 fetch_track() {
   error "==> Fetching track '$1'..."
   track_json=$(
-    curl_with_retry -fsSL "$1" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
-      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "sound") | .data // empty'
+    curl_with_retry -fsSL "$1" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+      jq '.[] | select(.hydratable == "sound") | .data // empty'
   )
   if [ -z "$track_json" ]; then
     error "Cannot extract JSON, skipping..."
@@ -286,10 +286,10 @@ fetch_track() {
 fetch_playlist() {
   error "==> Fetching playlist '$1'..."
   html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
   playlist_json=$(
-    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
-      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "playlist") | .data // empty'
+    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+      jq '.[] | select(.hydratable == "playlist") | .data // empty'
   )
   unset html
   if [ -z "$playlist_json" ]; then
@@ -322,10 +322,10 @@ fetch_playlist() {
 fetch_user_tracks() {
   error "==> Fetching user's tracks '$1'..."
   html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
   user_json=$(
-    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
-      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
+    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+      jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset html
   if [ -z "$user_json" ]; then
@@ -352,10 +352,10 @@ fetch_user_tracks() {
 fetch_user_albums() {
   error "==> Fetching user's albums '$1'..."
   html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
   user_json=$(
-    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
-      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
+    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+      jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset html
   if [ -z "$user_json" ]; then
@@ -383,10 +383,10 @@ fetch_user_albums() {
 fetch_user_playlists() {
   error "==> Fetching user's playlists '$1'..."
   html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | grep -o '^<script>window.__sc_version="[[:digit:]]\+"</script>$' | grep -o '[[:digit:]]\+')
+  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
   user_json=$(
-    printf "%s\n" "$html" | grep -o '^<script>window\.__sc_hydration = .\+;</script>$' |
-      grep -o '\[.\+\]' | jq '.[] | select(.hydratable == "user") | .data // empty'
+    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+      jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset html
   if [ -z "$user_json" ]; then

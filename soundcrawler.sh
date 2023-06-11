@@ -102,8 +102,8 @@ curl_with_retry() {
 
 error "==> Fetching client_id..."
 CLIENT_ID=$(
-  js_url=$(curl_with_retry -fsSL https://soundcloud.com | grep '<script crossorigin src=.\+></script>' | grep -o 'https.\+\.js' | tail -n 1)
-  curl_with_retry -fsSL "$js_url" | grep -o '[^_]client_id:"[^"]\+' | head -n 1 | cut -c13-
+  js_url=$(curl_with_retry -fsSL https://soundcloud.com | sed -n 's|^<script crossorigin src="\(.*\)"></script>$|\1|p' | tail -n 1)
+  curl_with_retry -fsSL "$js_url" | sed -n 's|.*\<client_id:"\([^"]*\)".*|\1|p' | head -n 1
 )
 if [ -z "$CLIENT_ID" ]; then
   error "client_id not found."
@@ -263,7 +263,7 @@ download_track() (
 fetch_track() {
   error "==> Fetching track '$1'..."
   track_json=$(
-    curl_with_retry -fsSL "$1" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+    curl_with_retry -fsSL "$1" | sed -n 's|^<script>window\.__sc_hydration = \(\[.*\]\).*</script>$|\1|p' |
       jq '.[] | select(.hydratable == "sound") | .data // empty'
   )
   if [ -z "$track_json" ]; then
@@ -279,9 +279,9 @@ fetch_track() {
 fetch_playlist() {
   error "==> Fetching playlist '$1'..."
   pl_html=$(curl_with_retry -fsSL "$1")
-  pl_app_version=$(printf "%s\n" "$pl_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  pl_app_version=$(printf "%s\n" "$pl_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   playlist_json=$(
-    printf "%s\n" "$pl_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+    printf "%s\n" "$pl_html" | sed -n 's|^<script>window\.__sc_hydration = \(\[.*\]\).*</script>$|\1|p' |
       jq '.[] | select(.hydratable == "playlist") | .data // empty'
   )
   unset pl_html
@@ -317,9 +317,9 @@ fetch_playlist() {
 fetch_user_tracks() {
   error "==> Fetching user's tracks '$1'..."
   ut_html=$(curl_with_retry -fsSL "$1")
-  ut_app_version=$(printf "%s\n" "$ut_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  ut_app_version=$(printf "%s\n" "$ut_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   ut_user_json=$(
-    printf "%s\n" "$ut_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+    printf "%s\n" "$ut_html" | sed -n 's|^<script>window\.__sc_hydration = \(\[.*\]\).*</script>$|\1|p' |
       jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset ut_html
@@ -348,9 +348,9 @@ fetch_user_tracks() {
 fetch_user_albums() {
   error "==> Fetching user's albums '$1'..."
   ua_html=$(curl_with_retry -fsSL "$1")
-  ua_app_version=$(printf "%s\n" "$ua_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  ua_app_version=$(printf "%s\n" "$ua_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   ua_user_json=$(
-    printf "%s\n" "$ua_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+    printf "%s\n" "$ua_html" | sed -n 's|^<script>window\.__sc_hydration = \(\[.*\]\).*</script>$|\1|p' |
       jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset ua_html
@@ -379,9 +379,9 @@ fetch_user_albums() {
 fetch_user_playlists() {
   error "==> Fetching user's playlists '$1'..."
   up_html=$(curl_with_retry -fsSL "$1")
-  up_app_version=$(printf "%s\n" "$up_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  up_app_version=$(printf "%s\n" "$up_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   up_user_json=$(
-    printf "%s\n" "$up_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+    printf "%s\n" "$up_html" | sed -n 's|^<script>window\.__sc_hydration = \(\[.*\]\).*</script>$|\1|p' |
       jq '.[] | select(.hydratable == "user") | .data // empty'
   )
   unset up_html

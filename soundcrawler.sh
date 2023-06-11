@@ -113,14 +113,6 @@ fi
 TMP_DIR=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-mime_to_ext() {
-  if [ ! -f "$TMP_DIR/mime" ]; then
-    curl_with_retry -fsSL https://raw.githubusercontent.com/mdn/content/main/files/en-us/web/http/basics_of_http/mime_types/common_types/index.md |
-      grep '^| `' >"$TMP_DIR/mime"
-  fi
-  grep "$1" "$TMP_DIR/mime" | grep -o "\`\.[^\`]\+" | cut -c2-
-}
-
 # Run in subshell.
 # Do NOT call it with 'if', '||', etc. so that 'set -e' can work.
 download_track() (
@@ -279,6 +271,7 @@ fetch_track() {
     return 1
   fi
   download_track "$track_json"
+  # shellcheck disable=SC2181
   [ $? -ne 0 ] && error "Cannot fetch the track."
   unset track_json
 }
@@ -303,6 +296,7 @@ fetch_playlist() {
   unset playlist_json
   printf "%s\n" "$initial_tracks" | jq -c '.[]' | while read -r pl_track_json; do
     download_track "$pl_track_json"
+    # shellcheck disable=SC2181
     [ $? -ne 0 ] && error "Cannot fetch the track."
   done
   unset initial_tracks
@@ -312,6 +306,7 @@ fetch_playlist() {
     additional_tracks=$(curl_with_retry -fsSL -g "$pl_api_url")
     printf "%s\n" "$additional_tracks" | jq -c '.[]' | while read -r pl_track_json; do
       download_track "$pl_track_json"
+      # shellcheck disable=SC2181
       [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     unset additional_tracks
@@ -340,6 +335,7 @@ fetch_user_tracks() {
     user_tracks=$(curl_with_retry -fsSL -g "$ut_api_url")
     printf "%s\n" "$user_tracks" | jq -c '.collection[]' | while read -r ut_track_json; do
       download_track "$ut_track_json"
+      # shellcheck disable=SC2181
       [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     ut_api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')

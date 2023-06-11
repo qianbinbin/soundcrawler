@@ -289,6 +289,7 @@ fetch_playlist() {
     error "Cannot extract JSON, skipping..."
     return 1
   fi
+  # Keep it for now. Not sure if it's correct.
   error "==> Fetching $(printf "%s\n" "$playlist_json" | jq -r '.track_count') track(s)..."
 
   initial_tracks=$(printf "%s\n" "$playlist_json" | jq '[.tracks[] | select(has("artwork_url"))]')
@@ -327,7 +328,8 @@ fetch_user_tracks() {
     error "Cannot extract JSON, skipping..."
     return 1
   fi
-  error "==> Fetching $(printf "%s\n" "$ut_user_json" | jq -r '.track_count') track(s)..."
+  # Sometimes track count is wrong.
+  # error "==> Fetching $(printf "%s\n" "$ut_user_json" | jq -r '.track_count') track(s)..."
   ut_user_id=$(printf "%s\n" "$ut_user_json" | jq -r '.id')
   unset ut_user_json
   ut_api_url="https://api-v2.soundcloud.com/users/$ut_user_id/tracks?representation=&client_id=$CLIENT_ID&limit=20&offset=0&linked_partitioning=1&app_version=$ut_app_version&app_locale=en"
@@ -358,7 +360,7 @@ fetch_user_albums() {
     error "Cannot extract JSON, skipping..."
     return 1
   fi
-  # No album count
+  # No album count.
   # error "==> Fetching $(printf "%s\n" "$ua_user_json" | jq -r '.album_count') album(s)..."
   ua_user_id=$(printf "%s\n" "$ua_user_json" | jq -r '.id')
   unset ua_user_json
@@ -389,7 +391,8 @@ fetch_user_playlists() {
     error "Cannot extract JSON, skipping..."
     return 1
   fi
-  error "==> Fetching $(printf "%s\n" "$up_user_json" | jq -r '.playlist_count') playlist(s)..."
+  # playlist_count = album count + playlist without albums count.
+  # error "==> Fetching $(printf "%s\n" "$up_user_json" | jq -r '.playlist_count') playlist(s)..."
   up_user_id=$(printf "%s\n" "$up_user_json" | jq -r '.id')
   unset up_user_json
   up_api_url="https://api-v2.soundcloud.com/users/$up_user_id/playlists_without_albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$up_app_version&app_locale=en"

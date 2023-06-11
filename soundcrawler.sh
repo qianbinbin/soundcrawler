@@ -285,13 +285,13 @@ fetch_track() {
 
 fetch_playlist() {
   error "==> Fetching playlist '$1'..."
-  html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  pl_html=$(curl_with_retry -fsSL "$1")
+  pl_app_version=$(printf "%s\n" "$pl_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
   playlist_json=$(
-    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+    printf "%s\n" "$pl_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
       jq '.[] | select(.hydratable == "playlist") | .data // empty'
   )
-  unset html
+  unset pl_html
   if [ -z "$playlist_json" ]; then
     error "Cannot extract JSON, skipping..."
     return 1
@@ -301,17 +301,17 @@ fetch_playlist() {
   initial_tracks=$(printf "%s\n" "$playlist_json" | jq '[.tracks[] | select(has("artwork_url"))]')
   id_list=$(printf "%s\n" "$playlist_json" | jq '.tracks[] | select(has("artwork_url") | not) | .id' | xargs -n 50 | tr ' ' ',')
   unset playlist_json
-  printf "%s\n" "$initial_tracks" | jq -c '.[]' | while read -r track_json; do
-    download_track "$track_json"
+  printf "%s\n" "$initial_tracks" | jq -c '.[]' | while read -r pl_track_json; do
+    download_track "$pl_track_json"
     [ $? -ne 0 ] && error "Cannot fetch the track."
   done
   unset initial_tracks
 
   for ids in $id_list; do
-    api_url="https://api-v2.soundcloud.com/tracks?ids=$ids&client_id=$CLIENT_ID&[object Object]=&app_version=$app_version&app_locale=en"
-    additional_tracks=$(curl_with_retry -fsSL -g "$api_url")
-    printf "%s\n" "$additional_tracks" | jq -c '.[]' | while read -r track_json; do
-      download_track "$track_json"
+    pl_api_url="https://api-v2.soundcloud.com/tracks?ids=$ids&client_id=$CLIENT_ID&[object Object]=&app_version=$pl_app_version&app_locale=en"
+    additional_tracks=$(curl_with_retry -fsSL -g "$pl_api_url")
+    printf "%s\n" "$additional_tracks" | jq -c '.[]' | while read -r pl_track_json; do
+      download_track "$pl_track_json"
       [ $? -ne 0 ] && error "Cannot fetch the track."
     done
     unset additional_tracks
@@ -321,92 +321,92 @@ fetch_playlist() {
 
 fetch_user_tracks() {
   error "==> Fetching user's tracks '$1'..."
-  html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
-  user_json=$(
-    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+  ut_html=$(curl_with_retry -fsSL "$1")
+  ut_app_version=$(printf "%s\n" "$ut_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  ut_user_json=$(
+    printf "%s\n" "$ut_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
       jq '.[] | select(.hydratable == "user") | .data // empty'
   )
-  unset html
-  if [ -z "$user_json" ]; then
+  unset ut_html
+  if [ -z "$ut_user_json" ]; then
     error "Cannot extract JSON, skipping..."
     return 1
   fi
-  error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.track_count') track(s)..."
-  user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
-  unset user_json
-  api_url="https://api-v2.soundcloud.com/users/$user_id/tracks?representation=&client_id=$CLIENT_ID&limit=20&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
+  error "==> Fetching $(printf "%s\n" "$ut_user_json" | jq -r '.track_count') track(s)..."
+  ut_user_id=$(printf "%s\n" "$ut_user_json" | jq -r '.id')
+  unset ut_user_json
+  ut_api_url="https://api-v2.soundcloud.com/users/$ut_user_id/tracks?representation=&client_id=$CLIENT_ID&limit=20&offset=0&linked_partitioning=1&app_version=$ut_app_version&app_locale=en"
   while true; do
-    user_tracks=$(curl_with_retry -fsSL -g "$api_url")
-    printf "%s\n" "$user_tracks" | jq -c '.collection[]' | while read -r track_json; do
-      download_track "$track_json"
+    user_tracks=$(curl_with_retry -fsSL -g "$ut_api_url")
+    printf "%s\n" "$user_tracks" | jq -c '.collection[]' | while read -r ut_track_json; do
+      download_track "$ut_track_json"
       [ $? -ne 0 ] && error "Cannot fetch the track."
     done
-    api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')
-    [ -z "$api_url" ] && break
-    api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
+    ut_api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')
+    [ -z "$ut_api_url" ] && break
+    ut_api_url="$ut_api_url&client_id=$CLIENT_ID&app_version=$ut_app_version&app_locale=en"
     unset user_tracks
   done
 }
 
 fetch_user_albums() {
   error "==> Fetching user's albums '$1'..."
-  html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
-  user_json=$(
-    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+  ua_html=$(curl_with_retry -fsSL "$1")
+  ua_app_version=$(printf "%s\n" "$ua_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  ua_user_json=$(
+    printf "%s\n" "$ua_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
       jq '.[] | select(.hydratable == "user") | .data // empty'
   )
-  unset html
-  if [ -z "$user_json" ]; then
+  unset ua_html
+  if [ -z "$ua_user_json" ]; then
     error "Cannot extract JSON, skipping..."
     return 1
   fi
   # No album count
-  # error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.album_count') album(s)..."
-  user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
-  unset user_json
-  api_url="https://api-v2.soundcloud.com/users/$user_id/albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
+  # error "==> Fetching $(printf "%s\n" "$ua_user_json" | jq -r '.album_count') album(s)..."
+  ua_user_id=$(printf "%s\n" "$ua_user_json" | jq -r '.id')
+  unset ua_user_json
+  ua_api_url="https://api-v2.soundcloud.com/users/$ua_user_id/albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$ua_app_version&app_locale=en"
   while true; do
-    user_albums=$(curl_with_retry -fsSL -g "$api_url")
-    api_url=$(printf "%s\n" "$user_albums" | jq -r '.next_href // empty')
+    user_albums=$(curl_with_retry -fsSL -g "$ua_api_url")
+    ua_api_url=$(printf "%s\n" "$user_albums" | jq -r '.next_href // empty')
     album_urls=$(printf "%s\n" "$user_albums" | jq -r '.collection[].permalink_url // empty')
     unset user_albums
     for pl_url in $album_urls; do
       fetch_playlist "$pl_url"
     done
-    [ -z "$api_url" ] && break
-    api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
+    [ -z "$ua_api_url" ] && break
+    ua_api_url="$ua_api_url&client_id=$CLIENT_ID&app_version=$ua_app_version&app_locale=en"
   done
 }
 
 fetch_user_playlists() {
   error "==> Fetching user's playlists '$1'..."
-  html=$(curl_with_retry -fsSL "$1")
-  app_version=$(printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
-  user_json=$(
-    printf "%s\n" "$html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
+  up_html=$(curl_with_retry -fsSL "$1")
+  up_app_version=$(printf "%s\n" "$up_html" | sed -n 's|<script>window\.__sc_version="\(.*\)"</script>|\1|p')
+  up_user_json=$(
+    printf "%s\n" "$up_html" | sed -n 's|<script>window\.__sc_hydration = \(\[.*\]\).*</script>|\1|p' |
       jq '.[] | select(.hydratable == "user") | .data // empty'
   )
-  unset html
-  if [ -z "$user_json" ]; then
+  unset up_html
+  if [ -z "$up_user_json" ]; then
     error "Cannot extract JSON, skipping..."
     return 1
   fi
-  error "==> Fetching $(printf "%s\n" "$user_json" | jq -r '.playlist_count') playlist(s)..."
-  user_id=$(printf "%s\n" "$user_json" | jq -r '.id')
-  unset user_json
-  api_url="https://api-v2.soundcloud.com/users/$user_id/playlists_without_albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$app_version&app_locale=en"
+  error "==> Fetching $(printf "%s\n" "$up_user_json" | jq -r '.playlist_count') playlist(s)..."
+  up_user_id=$(printf "%s\n" "$up_user_json" | jq -r '.id')
+  unset up_user_json
+  up_api_url="https://api-v2.soundcloud.com/users/$up_user_id/playlists_without_albums?client_id=$CLIENT_ID&limit=10&offset=0&linked_partitioning=1&app_version=$up_app_version&app_locale=en"
   while true; do
-    user_playlists=$(curl_with_retry -fsSL -g "$api_url")
-    api_url=$(printf "%s\n" "$user_playlists" | jq -r '.next_href // empty')
+    user_playlists=$(curl_with_retry -fsSL -g "$up_api_url")
+    up_api_url=$(printf "%s\n" "$user_playlists" | jq -r '.next_href // empty')
     playlist_urls=$(printf "%s\n" "$user_playlists" | jq -r '.collection[].permalink_url // empty')
     unset user_playlists
     for pl_url in $playlist_urls; do
       fetch_playlist "$pl_url"
     done
-    [ -z "$api_url" ] && break
-    api_url="$api_url&client_id=$CLIENT_ID&app_version=$app_version&app_locale=en"
+    [ -z "$up_api_url" ] && break
+    up_api_url="$up_api_url&client_id=$CLIENT_ID&app_version=$up_app_version&app_locale=en"
   done
 }
 

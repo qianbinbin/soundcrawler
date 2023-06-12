@@ -17,6 +17,18 @@ THICK_LINE=$(printf '%.s=' $(seq 1 80))
 
 error() { printf "%s\n" "$@" >&2; }
 
+text_bold() { printf "\033[1m%s\033[0m\n" "$@"; }
+text_rev() { printf "\033[7m%s\033[0m\n" "$@"; }
+text_red() { printf "\033[31m%s\033[0m\n" "$@"; }
+text_green() { printf "\033[32m%s\033[0m\n" "$@"; }
+text_yellow() { printf "\033[33m%s\033[0m\n" "$@"; }
+
+text_info() { text_bold "$@"; }
+text_notice() { text_green "$@"; }
+text_warn() { text_yellow "$@"; }
+text_error() { text_red "$@"; }
+text_fatal() { text_bold "$(text_red "$@")"; }
+
 USAGE=$(
   cat <<-END
 Usage: $0 [<options>] <url>...
@@ -63,17 +75,17 @@ shift $((OPTIND - 1))
 [ $# -ne 0 ] && URL_LIST=$*
 
 if [ "$INPUT_FILE_SET" = true ] && { [ ! -f "$INPUT_FILE" ] || [ ! -r "$INPUT_FILE" ]; }; then
-  error "Cannot access file: '$INPUT_FILE'."
+  error "$(text_fatal "Cannot access file: '$INPUT_FILE'.")"
   exit 1
 fi
 
 if [ -z "$URL_LIST" ] && [ "$INPUT_FILE_SET" = false ]; then
-  error "No URL provided."
+  error "$(text_fatal "No URL provided.")"
   _exit
 fi
 
 if [ "$INFO" = false ] && { [ ! -d "$OUT_DIR" ] || [ ! -w "$OUT_DIR" ]; }; then
-  error "Cannot write to directory: '$OUT_DIR'."
+  error "$(text_fatal "Cannot write to directory: '$OUT_DIR'.")"
   exit 1
 fi
 
@@ -83,14 +95,14 @@ exists() {
 
 for c in curl jq; do
   if ! exists "$c"; then
-    error "'$c' not found."
+    error "$(text_fatal "'$c' not found.")"
     exit 127
   fi
 done
 
 if [ "$INFO" = false ] && ! exists ffmpeg; then
   if [ "$METADATA" = true ] || [ "$COVER" = true ] || [ "$(printf "%s\n" "$TRANSCODING" | awk -F- '{ print $2 }')" = hls ]; then
-    error "'ffmpeg' not found."
+    error "$(text_fatal "'ffmpeg' not found.")"
     error "Specify '-M -C -t mp3' to download without ffmpeg."
     exit 127
   fi
@@ -100,13 +112,13 @@ curl_with_retry() {
   curl --retry 5 "$@"
 }
 
-error "==> Fetching client_id..."
+error "$(text_info "==> Fetching client_id...")"
 CLIENT_ID=$(
   js_url=$(curl_with_retry -fsSL https://soundcloud.com | sed -n 's|^<script crossorigin src="\(.*\)"></script>$|\1|p' | tail -n 1)
   curl_with_retry -fsSL "$js_url" | sed -n 's|.*\<client_id:"\([^"]*\)".*|\1|p' | head -n 1
 )
 if [ -z "$CLIENT_ID" ]; then
-  error "client_id not found."
+  error "$(text_fatal "client_id not found.")"
   exit 1
 fi
 
@@ -165,7 +177,7 @@ download_track() (
       transcoding=$(printf "%s\n" "$preset" | sed 's/_.*$//')
       if [ -n "$transcoding" ]; then
         [ "$protocol" != progressive ] && transcoding="$transcoding-$protocol"
-        printf "  # %-18s$0 -t \033[7m%s\033[0m [<options>] <url>...\n" "Download With" "$transcoding"
+        printf "  # %-18s$0 -t %s [<options>] <url>...\n" "Download With" "$(text_rev "$transcoding")"
       fi
     done
     return 0
@@ -183,13 +195,13 @@ download_track() (
   )
   if [ -z "$transcoding" ]; then
     if [ "$TRANSCODING_SET" = true ]; then
-      error "Transcoding not found."
+      error "$(text_error "Transcoding not found.")"
       return 1
     else
-      error "Transcoding not found, trying default..."
+      error "$(text_warn "Transcoding not found, trying default...")"
       transcoding=$(printf "%s\n" "$transcodings" | jq '.[0] // empty')
       if [ -z "$transcoding" ]; then
-        error "Transcoding not available, track details:"
+        error "$(text_error "Transcoding not available, track details:")"
         error "$(printf "%s\n" "$json" | jq -c)"
         return 1
       fi
@@ -227,7 +239,7 @@ download_track() (
     error "==> Merging audio parts..."
     ffmpeg -nostdin -loglevel warning -hide_banner -i "concat:$file_list" -c copy "$workdir/$filename"
   else
-    error "Unknown protocol: '$protocol'."
+    error "$(text_error "Unknown protocol: '$protocol'.")"
     return 1
   fi
 
@@ -257,27 +269,27 @@ download_track() (
 
   mv "$workdir/$filename" "$OUT_DIR"
   rm -rf "$workdir"
-  error "$OUT_DIR/$filename"
+  error "$(text_notice "$OUT_DIR/$filename")"
 )
 
 fetch_track() {
-  error "==> Fetching track '$1'..."
+  error "$(text_info "==> Fetching track '$1'...")"
   track_json=$(
     curl_with_retry -fsSL "$1" | sed -n 's|^<script>window\.__sc_hydration = \(\[.*\]\).*</script>$|\1|p' |
       jq '.[] | select(.hydratable == "sound") | .data // empty'
   )
   if [ -z "$track_json" ]; then
-    error "Cannot extract JSON, skipping..."
+    error "$(text_error "Cannot extract JSON, skipping...")"
     return 1
   fi
   download_track "$track_json"
   # shellcheck disable=SC2181
-  [ $? -ne 0 ] && error "Cannot fetch the track."
+  [ $? -ne 0 ] && error "$(text_error "Cannot fetch the track.")"
   unset track_json
 }
 
 fetch_playlist() {
-  error "==> Fetching playlist '$1'..."
+  error "$(text_info "==> Fetching playlist '$1'...")"
   pl_html=$(curl_with_retry -fsSL "$1")
   pl_app_version=$(printf "%s\n" "$pl_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   playlist_json=$(
@@ -286,7 +298,7 @@ fetch_playlist() {
   )
   unset pl_html
   if [ -z "$playlist_json" ]; then
-    error "Cannot extract JSON, skipping..."
+    error "$(text_error "Cannot extract JSON, skipping...")"
     return 1
   fi
   # Keep it for now. Not sure if it's correct.
@@ -298,7 +310,7 @@ fetch_playlist() {
   printf "%s\n" "$initial_tracks" | jq -c '.[]' | while read -r pl_track_json; do
     download_track "$pl_track_json"
     # shellcheck disable=SC2181
-    [ $? -ne 0 ] && error "Cannot fetch the track."
+    [ $? -ne 0 ] && error "$(text_error "Cannot fetch the track.")"
   done
   unset initial_tracks
 
@@ -308,7 +320,7 @@ fetch_playlist() {
     printf "%s\n" "$additional_tracks" | jq -c '.[]' | while read -r pl_track_json; do
       download_track "$pl_track_json"
       # shellcheck disable=SC2181
-      [ $? -ne 0 ] && error "Cannot fetch the track."
+      [ $? -ne 0 ] && error "$(text_error "Cannot fetch the track.")"
     done
     unset additional_tracks
   done
@@ -316,7 +328,7 @@ fetch_playlist() {
 }
 
 fetch_user_tracks() {
-  error "==> Fetching user's tracks '$1'..."
+  error "$(text_info "==> Fetching user's tracks '$1'...")"
   ut_html=$(curl_with_retry -fsSL "$1")
   ut_app_version=$(printf "%s\n" "$ut_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   ut_user_json=$(
@@ -325,7 +337,7 @@ fetch_user_tracks() {
   )
   unset ut_html
   if [ -z "$ut_user_json" ]; then
-    error "Cannot extract JSON, skipping..."
+    error "$(text_error "Cannot extract JSON, skipping...")"
     return 1
   fi
   # Sometimes track count is wrong.
@@ -338,7 +350,7 @@ fetch_user_tracks() {
     printf "%s\n" "$user_tracks" | jq -c '.collection[]' | while read -r ut_track_json; do
       download_track "$ut_track_json"
       # shellcheck disable=SC2181
-      [ $? -ne 0 ] && error "Cannot fetch the track."
+      [ $? -ne 0 ] && error "$(text_error "Cannot fetch the track.")"
     done
     ut_api_url=$(printf "%s\n" "$user_tracks" | jq -r '.next_href // empty')
     [ -z "$ut_api_url" ] && break
@@ -348,7 +360,7 @@ fetch_user_tracks() {
 }
 
 fetch_user_albums() {
-  error "==> Fetching user's albums '$1'..."
+  error "$(text_info "==> Fetching user's albums '$1'...")"
   ua_html=$(curl_with_retry -fsSL "$1")
   ua_app_version=$(printf "%s\n" "$ua_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   ua_user_json=$(
@@ -357,7 +369,7 @@ fetch_user_albums() {
   )
   unset ua_html
   if [ -z "$ua_user_json" ]; then
-    error "Cannot extract JSON, skipping..."
+    error "$(text_error "Cannot extract JSON, skipping...")"
     return 1
   fi
   # No album count.
@@ -379,7 +391,7 @@ fetch_user_albums() {
 }
 
 fetch_user_playlists() {
-  error "==> Fetching user's playlists '$1'..."
+  error "$(text_info "==> Fetching user's playlists '$1'...")"
   up_html=$(curl_with_retry -fsSL "$1")
   up_app_version=$(printf "%s\n" "$up_html" | sed -n 's|^<script>window\.__sc_version="\(.*\)"</script>$|\1|p')
   up_user_json=$(
@@ -388,7 +400,7 @@ fetch_user_playlists() {
   )
   unset up_html
   if [ -z "$up_user_json" ]; then
-    error "Cannot extract JSON, skipping..."
+    error "$(text_error "Cannot extract JSON, skipping...")"
     return 1
   fi
   # playlist_count = album count + playlist without albums count.
@@ -423,7 +435,7 @@ fetch_url() {
   elif printf "%s\n" "$_url" | grep -qs '^https://soundcloud.com/[^/]\+/sets/[^/]\+$'; then
     fetch_playlist "$_url"
   else
-    error "Skipping unknown URL: '$1'..."
+    error "$(text_warn "Skipping unknown URL: '$1'...")"
   fi
 }
 

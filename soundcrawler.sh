@@ -115,7 +115,7 @@ curl_with_retry() {
 error "$(text_info "==> Fetching client_id...")"
 CLIENT_ID=$(
   js_url=$(curl_with_retry -fsSL https://soundcloud.com | sed -n 's|^<script crossorigin src="\(.*\)"></script>$|\1|p' | tail -n 1)
-  curl_with_retry -fsSL "$js_url" | sed -n 's|.*\<client_id:"\([^"]*\)".*|\1|p' | head -n 1
+  curl_with_retry -fsSL "$js_url" | grep -o 'client_id:"[^"]*' | head -n 1 | cut -c12-
 )
 if [ -z "$CLIENT_ID" ]; then
   error "$(text_fatal "client_id not found.")"
